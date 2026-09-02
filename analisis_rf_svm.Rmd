@@ -1,0 +1,629 @@
+---
+title: "Perbandingan Kinerja Random Forest dan Support Vector Machine dalam Klasifikasi Rekomendasi Destinasi Wisata Bali"
+author: "kamelia"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Pendahuluan
+
+Sektor pariwisata merupakan salah satu sektor strategis yang berperan dalam pembangunan ekonomi Indonesia. Bali menjadi salah satu destinasi wisata unggulan dengan jumlah kunjungan wisatawan yang terus meningkat. Pada Januari–Mei 2025, kunjungan wisatawan mancanegara ke Bali mencapai 2,64 juta kunjungan, meningkat 13,65% dibandingkan periode yang sama tahun sebelumnya. Tingginya jumlah destinasi wisata di Bali memberikan banyak alternatif bagi wisatawan, tetapi sekaligus dapat menimbulkan information overload sehingga menyulitkan proses pemilihan destinasi sesuai kebutuhan dan preferensi. Oleh karena itu, diperlukan pendekatan berbasis data yang dapat membantu mengklasifikasikan destinasi wisata sebagai rekomendasi atau tidak.
+Salah satu sumber informasi wisata yang dapat dimanfaatkan adalah Google Maps, yang menyediakan data user-generated content seperti rating, jumlah ulasan, lokasi, dan informasi destinasi. Data tersebut dapat dimanfaatkan dalam pendekatan machine learning untuk membangun model klasifikasi rekomendasi destinasi wisata. Support Vector Machine (SVM) merupakan salah satu metode klasifikasi yang memiliki kemampuan baik dalam menangani data dengan pola pemisahan yang kompleks. Sementara itu, Random Forest (RF) merupakan metode ensemble berbasis decision tree yang efektif dalam menangani data tabular dan dapat mengurangi risiko overfitting. Perbedaan karakteristik kedua metode tersebut menjadikannya relevan untuk dibandingkan pada data pariwisata
+
+
+Penelitian ini membandingkan kinerja metode **Random Forest** dan **Support Vector Machine (SVM)** dalam mengklasifikasikan rekomendasi destinasi wisata di Bali berdasarkan atribut seperti kategori wisata, harga tiket masuk, jumlah rating, dan jarak dari bandara. Model dievaluasi pada tiga skema pembagian data: 90:10, 80:20, dan 70:30.
+
+## Library yang Digunakan
+
+```{r libraries}
+library(tidyverse)
+library(caret)
+library(e1071)
+library(randomForest)
+library(readxl)
+library(rpart)
+library(rpart.plot)
+library(recipes)
+library(themis)
+```
+
+# 1. Import dan Persiapan Data
+
+```{r import-data}
+dataskripsi <- read_csv2("destinasi_wisata_bali.csv")
+names(dataskripsi) <- make.names(names(dataskripsi))
+head(dataskripsi)
+```
+
+## Membentuk Variabel Target
+
+Variabel target `rekomendasi` dibentuk dari `rating`: destinasi dengan rating >= 4.5 dikategorikan **"Direkomendasikan"**, sisanya **"Tidak_Direkomendasikan"**.
+
+```{r target-variable}
+dataskripsi$rekomendasi <- ifelse(
+  dataskripsi$rating >= 4.5,
+  "Direkomendasikan",
+  "Tidak_Direkomendasikan")
+
+dataskripsi$rekomendasi <- as.factor(dataskripsi$rekomendasi)
+table(dataskripsi$rekomendasi)
+names(dataskripsi)
+```
+
+## Membersihkan Data
+
+```{r cleaning}
+# Menghapus variabel yang tidak digunakan
+dataskripsi <- dataskripsi %>%
+  select(
+    -nama_tempat_wisata,
+    -rating,
+    -kabupaten_kota)
+
+# Ubah variabel kategorik menjadi factor
+dataskripsi$kategori <- as.factor(dataskripsi$kategori)
+
+# Bersihkan format harga tiket masuk (HTM)
+dataskripsi$htm.internasional <- gsub("Rp|\\.","",dataskripsi$htm.internasional)
+dataskripsi$htm.internasional <- as.numeric(dataskripsi$htm.internasional)
+
+dataskripsi$htm.domestik <- gsub("Rp|\\.","",dataskripsi$htm.domestik)
+dataskripsi$htm.domestik <- as.numeric(dataskripsi$htm.domestik)
+
+str(dataskripsi)
+```
+
+```{r missing-check}
+# Cek data hilang
+sum(is.na(dataskripsi))
+
+# Ringkasan statistik
+summary(dataskripsi)
+```
+
+# 2. Exploratory Data Analysis (EDA)
+
+## Distribusi Kategori Wisata
+
+```{r eda-barplot}
+table(dataskripsi$kategori)
+
+barplot(
+  table(dataskripsi$kategori),
+  main = "Distribusi Kategori Wisata",
+  xlab = "Kategori Wisata",
+  ylab = "Jumlah Objek Wisata"
+)
+```
+
+Berdasarkan gambar histogram Variabel kategori wisata data terdiri atas 
+tiga kategori, yaitu Alam sebanyak 163 destinasi, Budaya sebanyak 68 destinasi, 
+dan Rekreasi sebanyak 83 destinasi. Kategori Alam merupakan kategori dengan 
+jumlah destinasi terbanyak, sedangkan kategori Budaya memiliki jumlah destinasi 
+paling sedikit.
+
+## Distribusi Variabel Prediktor Numerik
+
+```{r eda-histogram, fig.width=8, fig.height=6}
+dataskripsi %>%
+  select(htm.internasional, htm.domestik, jumlah_rating, jarak..km.) %>%
+  pivot_longer(cols = everything(), names_to = "Variabel", values_to = "Nilai") %>%
+  mutate(
+    Variabel = recode(
+      Variabel,
+      "htm.internasional" = "HTM Internasional (Rp)",
+      "htm.domestik" = "HTM Domestik (Rp)",
+      "jumlah_rating" = "Jumlah Rating (ulasan)",
+      "jarak..km." = "Jarak dari Bandara (km)"
+    )
+  ) %>%
+  ggplot(aes(x = Nilai)) +
+  geom_histogram(bins = 30, color = "black") +
+  facet_wrap(~Variabel, scales = "free") +
+  labs(title = "Distribusi Variabel Prediktor", x = "Nilai", y = "Frekuensi") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"), plot.title = element_text(hjust = 0.5))
+```
+
+variabel jumlah_rating, htm.domestik, 
+dan htm.internasional memiliki sebaran yang mencong ke kanan dengan rentang 
+nilai yang lebar serta terdapat beberapa observasi yang berada jauh di luar sebaran 
+utama (outlier). Sebaliknya, variabel jarak tersebar lebih merata dan mendekati 
+simetris. Kondisi ini menunjukkan bahwa skala dan tingkat sebaran antarvariabel 
+sangat bervariasi dan tidak seragam.
+
+```{r add-obs-id}
+dataskripsi$observasi <- seq_len(nrow(dataskripsi))
+```
+
+## Fungsi Bantu: Metrik Evaluasi Lengkap
+
+Fungsi ini dipakai berulang kali untuk menghitung akurasi, precision, recall, F1-score, dan specificity di setiap model.
+
+```{r fungsi-metrik}
+hitung_metrik_lengkap <- function(true, pred) {
+  true <- factor(true, levels = levels(true))
+  pred <- factor(pred, levels = levels(true))
+  cm <- caret::confusionMatrix(pred, true)
+  tab <- cm$table
+  semua_kelas <- levels(true)
+
+  hasil_kelas <- data.frame(
+    Kelas = semua_kelas, Precision = 0, Recall = 0, F1 = 0, Specificity = 0
+  )
+
+  precision <- recall <- f1 <- specificity <- c()
+
+  for (k in semua_kelas) {
+    TP <- tab[k, k]
+    FP <- sum(tab[k, ]) - TP
+    FN <- sum(tab[, k]) - TP
+    TN <- sum(tab) - TP - FP - FN
+
+    p <- ifelse(TP + FP == 0, 0, TP / (TP + FP))
+    r <- ifelse(TP + FN == 0, 0, TP / (TP + FN))
+    f <- ifelse(p + r == 0, 0, 2 * p * r / (p + r))
+    s <- ifelse(TN + FP == 0, 0, TN / (TN + FP))
+
+    hasil_kelas[hasil_kelas$Kelas == k, 2:5] <- c(p, r, f, s)
+    precision <- c(precision, p); recall <- c(recall, r)
+    f1 <- c(f1, f); specificity <- c(specificity, s)
+  }
+
+  hasil_macro <- data.frame(
+    Accuracy = as.numeric(cm$overall["Accuracy"]),
+    Precision = mean(precision), Recall = mean(recall),
+    F1 = mean(f1), Specificity = mean(specificity)
+  )
+
+  list(per_kelas = hasil_kelas, macro = hasil_macro)
+}
+```
+
+# 3. Random Forest
+
+## 3.1 Split 90:10
+
+### Split Data dan SMOTE
+
+```{r rf90-split}
+set.seed(26)
+index <- createDataPartition(dataskripsi$rekomendasi, p = 0.9, list = FALSE)
+
+data_train_rf <- dataskripsi[index, ]
+data_test_rf  <- dataskripsi[-index, ]
+
+train_rf <- data_train_rf %>% select(-observasi)
+test_rf  <- data_test_rf %>% select(-observasi)
+
+# SMOTE pada data training
+set.seed(26)
+rec_smotenc <- recipe(rekomendasi ~ ., data = train_rf) %>% step_smotenc(rekomendasi)
+train_rf_smotenc <- prep(rec_smotenc) %>% bake(new_data = NULL)
+
+table(train_rf$rekomendasi)
+table(train_rf_smotenc$rekomendasi)
+```
+
+```{r rf90-xy}
+train_x_rf <- train_rf_smotenc %>% select(-rekomendasi)
+train_y_rf <- train_rf_smotenc$rekomendasi
+test_x_rf  <- test_rf %>% select(-rekomendasi)
+test_y_rf  <- test_rf$rekomendasi
+```
+
+### Tuning Parameter
+
+```{r rf90-tuning}
+mtry_list     <- c(1, 2, 5)
+ntree_list    <- c(50, 80, 100, 150, 200)
+nodesize_list <- c(3, 5, 7, 10, 15)
+maxnodes_list <- c(10, 20, 50, 70, 100, 150)
+
+hasil_tuning_90 <- data.frame(
+  mtry = integer(), ntree = integer(), nodesize = integer(),
+  maxnodes = integer(), accuracy = numeric(), stringsAsFactors = FALSE
+)
+
+set.seed(26)
+for (m in mtry_list) {
+  for (nt in ntree_list) {
+    for (ns in nodesize_list) {
+      for (mx in maxnodes_list) {
+        model_temp <- randomForest(
+          rekomendasi ~ ., data = train_rf_smotenc,
+          mtry = m, ntree = nt, nodesize = ns, maxnodes = mx
+        )
+        pred_temp <- predict(model_temp, newdata = test_rf, type = "class")
+        acc_temp <- confusionMatrix(pred_temp, test_y_rf)$overall["Accuracy"]
+        hasil_tuning_90 <- rbind(
+          hasil_tuning_90,
+          data.frame(mtry = m, ntree = nt, nodesize = ns, maxnodes = mx, accuracy = acc_temp)
+        )
+      }
+    }
+  }
+}
+
+best_result_90 <- hasil_tuning_90[which.max(hasil_tuning_90$accuracy), ]
+best_result_90
+```
+
+> **Catatan:** Grid search di atas cukup berat secara komputasi (ribuan kombinasi). 
+
+### Model Final
+
+```{r rf90-model}
+set.seed(26)
+model_rf_90 <- randomForest(
+  x = train_x_rf, y = train_y_rf,
+  mtry = 2, ntree = 50, nodesize = 3, maxnodes = 50,
+  importance = TRUE, keep.inbag = TRUE
+)
+model_rf_90
+```
+
+### Ilustrasi Salah Satu Pohon dalam Random Forest
+
+```{r rf90-tree1}
+train_rf_smotenc$observasi <- seq_len(nrow(train_rf_smotenc))
+
+inbag_tree1_90 <- model_rf_90$inbag[, 1]
+idx_bootstrap_tree1_90 <- rep(train_rf_smotenc$observasi, times = inbag_tree1_90)
+bootstrap_tree1_90 <- train_rf_smotenc[match(idx_bootstrap_tree1_90, train_rf_smotenc$observasi), ]
+
+tree_cart_boot1_90 <- rpart(
+  rekomendasi ~ ., data = bootstrap_tree1_90 %>% select(-observasi),
+  method = "class", parms = list(split = "information"),
+  control = rpart.control(cp = 0, minsplit = 2, minbucket = 1, maxdepth = 4)
+)
+
+rpart.plot(tree_cart_boot1_90, type = 2, extra = 104, fallen.leaves = TRUE,
+           main = "Ilustrasi Pohon ke-1 RF 90:10")
+```
+
+### Evaluasi Model
+
+```{r rf90-eval}
+pred_train_rf_90 <- predict(model_rf_90, train_x_rf)
+pred_test_rf_90  <- predict(model_rf_90, test_x_rf)
+
+cm_train_rf_90 <- confusionMatrix(pred_train_rf_90, train_y_rf)
+cm_test_rf_90  <- confusionMatrix(pred_test_rf_90, test_y_rf)
+
+metrik_rf_train_90 <- hitung_metrik_lengkap(train_y_rf, pred_train_rf_90)
+metrik_rf_test_90  <- hitung_metrik_lengkap(test_y_rf, pred_test_rf_90)
+
+metrik_rf_test_90$per_kelas
+metrik_rf_test_90$macro
+```
+
+Model RF pada data testing proporsi 90:10 memperoleh nilai 
+accuracy sebesar 0,7097. Hal ini menunjukkan bahwa model mampu 
+mengklasifikasikan 70,97% destinasi wisata sesuai dengan kelas aktualnya. Secara keseluruhan, model menghasilkan nilai macro average precision, F1
+score, dan sensitivity masing-masing sebesar 0,6413 , 0,6353 dan 0, 6313. Hasil 
+tersebut menunjukkan bahwa model memiliki kemampuan klasifikasi yang baik, 
+terutama dalam mengenali destinasi wisata yang termasuk dalam kelas 
+Direkomendasikan.
+
+## 3.2 Split 80:20
+
+```{r rf80-full}
+set.seed(26)
+index80 <- createDataPartition(dataskripsi$rekomendasi, p = 0.8, list = FALSE)
+
+data_train_rf80 <- dataskripsi[index80, ]
+data_test_rf80  <- dataskripsi[-index80, ]
+
+train_rf80 <- data_train_rf80 %>% select(-observasi)
+test_rf80  <- data_test_rf80 %>% select(-observasi)
+
+set.seed(26)
+rec_smotenc80 <- recipe(rekomendasi ~ ., data = train_rf80) %>% step_smotenc(rekomendasi)
+train_rf_smotenc80 <- prep(rec_smotenc80) %>% bake(new_data = NULL)
+
+train_x_rf80 <- train_rf_smotenc80 %>% select(-rekomendasi)
+test_x_rf80  <- test_rf80 %>% select(-rekomendasi)
+train_y_rf80 <- train_rf_smotenc80$rekomendasi
+test_y_rf80  <- test_rf80$rekomendasi
+
+set.seed(26)
+model_rf_80 <- randomForest(
+  x = train_x_rf80, y = train_y_rf80,
+  mtry = 2, ntree = 50, nodesize = 7, maxnodes = 70,
+  importance = TRUE, keep.inbag = TRUE
+)
+model_rf_80
+
+pred_train_rf_80 <- predict(model_rf_80, train_x_rf80)
+pred_test_rf_80  <- predict(model_rf_80, test_x_rf80)
+
+metrik_rf_train_80 <- hitung_metrik_lengkap(train_y_rf80, pred_train_rf_80)
+metrik_rf_test_80  <- hitung_metrik_lengkap(test_y_rf80, pred_test_rf_80)
+
+metrik_rf_test_80$per_kelas
+metrik_rf_test_80$macro
+```
+
+Catatan: chunk grid tuning untuk split 80:20 dan 70:30 mengikuti pola yang sama seperti 90:10 di atas.
+
+Model RF pada data testing proporsi 80:20 memperoleh nilai 
+accuracy sebesar 0.6612. Hal ini menunjukkan bahwa model mampu 
+mengklasifikasikan 66,12% destinasi wisata sesuai dengan kelas aktualnya. Secara keseluruhan, model menghasilkan nilai macro average precision, F1
+score, dan sensitivity masing-masing sebesar 0.5836, 0.5820 dan 0.5808. Hasil 
+tersebut menunjukkan bahwa model memiliki kemampuan klasifikasi yang baik, 
+terutama dalam mengenali destinasi wisata yang termasuk dalam kelas 
+Direkomendasikan
+
+## 3.3 Split 70:30
+
+```{r rf70-full}
+set.seed(26)
+index70 <- createDataPartition(dataskripsi$rekomendasi, p = 0.7, list = FALSE)
+
+data_train_rf70 <- dataskripsi[index70, ]
+data_test_rf70  <- dataskripsi[-index70, ]
+
+train_rf70 <- data_train_rf70 %>% select(-observasi)
+test_rf70  <- data_test_rf70 %>% select(-observasi)
+
+set.seed(26)
+rec_smotenc70 <- recipe(rekomendasi ~ ., data = train_rf70) %>% step_smotenc(rekomendasi)
+train_rf_smotenc70 <- prep(rec_smotenc70) %>% bake(new_data = NULL)
+
+train_x_rf70 <- train_rf_smotenc70 %>% select(-rekomendasi)
+test_x_rf70  <- test_rf70 %>% select(-rekomendasi)
+train_y_rf70 <- train_rf_smotenc70$rekomendasi
+test_y_rf70  <- test_rf70$rekomendasi
+
+set.seed(26)
+model_rf_70 <- randomForest(
+  x = train_x_rf70, y = train_y_rf70,
+  mtry = 1, ntree = 80, nodesize = 5, maxnodes = 50,
+  importance = TRUE, keep.inbag = TRUE
+)
+model_rf_70
+
+pred_train_rf_70 <- predict(model_rf_70, train_x_rf70)
+pred_test_rf_70  <- predict(model_rf_70, test_x_rf70)
+
+metrik_rf_train_70 <- hitung_metrik_lengkap(train_y_rf70, pred_train_rf_70)
+metrik_rf_test_70  <- hitung_metrik_lengkap(test_y_rf70, pred_test_rf_70)
+
+metrik_rf_test_70$per_kelas
+metrik_rf_test_70$macro
+```
+
+Berdasarkan hasil evaluasi pada data testing, model Random Forest dengan skema pembagian data 70:30 menghasilkan nilai accuracy sebesar 60,64%, precision sebesar 52,44%, recall sebesar 52,49%, F1-score sebesar 52,45%, dan specificity sebesar 52,49%. Nilai accuracy yang diperoleh menunjukkan bahwa model mampu mengklasifikasikan dengan benar sekitar 60,64% dari keseluruhan data uji. Namun, nilai precision, recall, F1-score, dan specificity yang berada pada kisaran 52% mengindikasikan bahwa kemampuan model dalam membedakan kelas "Direkomendasikan" dan "Tidak_Direkomendasikan" masih tergolong rendah, mendekati kinerja klasifikasi acak (random guessing). Hal ini menunjukkan bahwa model belum dapat mengenali pola pembeda antar kelas secara konsisten, sehingga performa klasifikasi pada skema ini belum optimal.
+
+# 4. Support Vector Machine (SVM)
+
+## Persiapan Data Khusus SVM
+
+SVM memerlukan variabel kategorik dalam bentuk dummy/one-hot encoding dan variabel numerik yang dinormalisasi (min-max scaling), berbeda dengan Random Forest yang bisa langsung menangani variabel kategorik.
+
+```{r svm-dummy}
+dummy <- dummyVars(~ kategori, data = dataskripsi)
+kategori_dummy <- data.frame(predict(dummy, newdata = dataskripsi))
+
+data_dummy <- cbind(
+  kategori_dummy,
+  dataskripsi %>% select(jumlah_rating, htm.domestik, htm.internasional, jarak..km., rekomendasi)
+)
+str(data_dummy)
+```
+
+## 4.1 Split 90:10
+
+```{r svm90-full}
+set.seed(26)
+index <- createDataPartition(data_dummy$rekomendasi, p = 0.9, list = FALSE)
+train_svm <- data_dummy[index, ]
+test_svm  <- data_dummy[-index, ]
+
+# Normalisasi min-max HANYA dari data training
+preproc_svm <- preProcess(
+  train_svm %>% select(jumlah_rating, htm.domestik, htm.internasional, jarak..km.),
+  method = "range"
+)
+train_svm_scaled <- predict(preproc_svm, train_svm)
+test_svm_scaled  <- predict(preproc_svm, test_svm)
+
+# SMOTE pada data training yang sudah dinormalisasi
+set.seed(26)
+rec_smote_svm <- recipe(rekomendasi ~ ., data = train_svm_scaled) %>% step_smote(rekomendasi)
+train_svm_smote <- prep(rec_smote_svm) %>% bake(new_data = NULL)
+table(train_svm_smote$rekomendasi)
+
+train_x_svm <- train_svm_smote %>% select(-rekomendasi)
+train_y_svm <- train_svm_smote$rekomendasi
+test_x_svm  <- test_svm_scaled %>% select(-rekomendasi)
+test_y_svm  <- test_svm_scaled$rekomendasi
+
+# Tuning kernel radial (cost & gamma)
+set.seed(26)
+tune_svm_90 <- tune.svm(
+  x = train_x_svm, y = train_y_svm, kernel = "radial",
+  cost = c(5, 10, 20, 50, 100), gamma = c(0.01, 0.05, 0.1, 0.2)
+)
+tune_svm_90$best.parameters
+
+model_svm_90 <- svm(
+  x = train_x_svm, y = train_y_svm, kernel = "radial",
+  cost = 50, gamma = 0.2, probability = TRUE
+)
+model_svm_90
+
+pred_train_svm_90 <- predict(model_svm_90, train_x_svm)
+pred_test_svm_90  <- predict(model_svm_90, test_x_svm)
+
+metrik_svm_train_90 <- hitung_metrik_lengkap(train_y_svm, pred_train_svm_90)
+metrik_svm_test_90  <- hitung_metrik_lengkap(test_y_svm, pred_test_svm_90)
+
+metrik_svm_test_90$per_kelas
+metrik_svm_test_90$macro
+```
+
+Pada skema pembagian data 90:10, model SVM menghasilkan nilai accuracy sebesar 61,29%, precision sebesar 58,12%, recall sebesar 59,60%, F1-score sebesar 57,73%, dan specificity sebesar 59,60%. Nilai-nilai ini menunjukkan kinerja klasifikasi yang masih tergolong sedang, dengan kemampuan model dalam mengenali kedua kelas secara seimbang namun belum optimal.
+
+## 4.2 Split 80:20
+
+```{r svm80-full}
+set.seed(26)
+index <- createDataPartition(data_dummy$rekomendasi, p = 0.8, list = FALSE)
+train_svm80 <- data_dummy[index, ]
+test_svm80  <- data_dummy[-index, ]
+
+preproc_svm80 <- preProcess(
+  train_svm80 %>% select(jumlah_rating, htm.domestik, htm.internasional, jarak..km.),
+  method = "range"
+)
+train_svm80_scaled <- predict(preproc_svm80, train_svm80)
+test_svm80_scaled  <- predict(preproc_svm80, test_svm80)
+
+set.seed(26)
+rec_smote_svm80 <- recipe(rekomendasi ~ ., data = train_svm80_scaled) %>% step_smote(rekomendasi)
+train_svm80_smote <- prep(rec_smote_svm80) %>% bake(new_data = NULL)
+
+train_x_svm80 <- train_svm80_smote %>% select(-rekomendasi)
+train_y_svm80 <- train_svm80_smote$rekomendasi
+test_x_svm80  <- test_svm80_scaled %>% select(-rekomendasi)
+test_y_svm80  <- test_svm80_scaled$rekomendasi
+
+set.seed(26)
+tune_svm_80 <- tune.svm(
+  x = train_x_svm80, y = train_y_svm80, kernel = "radial",
+  cost = c(5, 10, 20, 50, 100), gamma = c(0.01, 0.05, 0.1, 0.2)
+)
+tune_svm_80$best.parameters
+
+model_svm_80 <- svm(
+  x = train_x_svm80, y = train_y_svm80, kernel = "radial",
+  cost = 50, gamma = 0.2, probability = TRUE
+)
+model_svm_80
+
+pred_train_svm_80 <- predict(model_svm_80, train_x_svm80)
+pred_test_svm_80  <- predict(model_svm_80, test_x_svm80)
+
+metrik_svm_train_80 <- hitung_metrik_lengkap(train_y_svm80, pred_train_svm_80)
+metrik_svm_test_80  <- hitung_metrik_lengkap(test_y_svm80, pred_test_svm_80)
+
+metrik_svm_test_80$per_kelas
+metrik_svm_test_80$macro
+```
+
+Pada skema pembagian data 80:20, model SVM menunjukkan peningkatan kinerja yang cukup signifikan dibandingkan skema 90:10, dengan accuracy sebesar 72,58%, precision sebesar 67,01%, recall sebesar 67,55%, F1-score sebesar 67,26%, dan specificity sebesar 67,55%. Skema ini menghasilkan performa terbaik di antara ketiga skema pembagian data yang diuji, mengindikasikan bahwa proporsi data testing 20% memberikan jumlah data uji yang cukup representatif sekaligus data training yang memadai bagi model untuk mengenali pola klasifikasi dengan lebih baik.
+
+## 4.3 Split 70:30
+
+```{r svm70-full}
+set.seed(26)
+index <- createDataPartition(data_dummy$rekomendasi, p = 0.7, list = FALSE)
+train_svm70 <- data_dummy[index, ]
+test_svm70  <- data_dummy[-index, ]
+
+preproc_svm70 <- preProcess(
+  train_svm70 %>% select(jumlah_rating, htm.domestik, htm.internasional, jarak..km.),
+  method = "range"
+)
+train_svm70_scaled <- predict(preproc_svm70, train_svm70)
+test_svm70_scaled  <- predict(preproc_svm70, test_svm70)
+
+set.seed(26)
+rec_smote_svm70 <- recipe(rekomendasi ~ ., data = train_svm70_scaled) %>% step_smote(rekomendasi)
+train_svm70_smote <- prep(rec_smote_svm70) %>% bake(new_data = NULL)
+
+train_x_svm70 <- train_svm70_smote %>% select(-rekomendasi)
+train_y_svm70 <- train_svm70_smote$rekomendasi
+test_x_svm70  <- test_svm70_scaled %>% select(-rekomendasi)
+test_y_svm70  <- test_svm70_scaled$rekomendasi
+
+set.seed(26)
+tune_svm_70 <- tune.svm(
+  x = train_x_svm70, y = train_y_svm70, kernel = "radial",
+  cost = c(5, 10, 20, 50, 100), gamma = c(0.01, 0.05, 0.1, 0.2)
+)
+tune_svm_70$best.parameters
+
+model_svm_70 <- svm(
+  x = train_x_svm70, y = train_y_svm70, kernel = "radial",
+  cost = 100, gamma = 0.1, probability = TRUE
+)
+model_svm_70
+
+pred_train_svm_70 <- predict(model_svm_70, train_x_svm70)
+pred_test_svm_70  <- predict(model_svm_70, test_x_svm70)
+
+metrik_svm_train_70 <- hitung_metrik_lengkap(train_y_svm70, pred_train_svm_70)
+metrik_svm_test_70  <- hitung_metrik_lengkap(test_y_svm70, pred_test_svm_70)
+
+metrik_svm_test_70$per_kelas
+metrik_svm_test_70$macro
+```
+
+Pada skema pembagian data 70:30, model SVM menghasilkan accuracy sebesar 58,51%, precision sebesar 56,32%, recall sebesar 57,63%, F1-score sebesar 55,35%, dan specificity sebesar 57,63%. Nilai-nilai ini merupakan yang terendah di antara ketiga skema, kemungkinan disebabkan oleh berkurangnya proporsi data training (70%) yang menyebabkan model memiliki lebih sedikit informasi untuk mempelajari pola klasifikasi, meskipun jumlah data testing yang lebih besar (30%).
+
+# 5. Perbandingan Kinerja RF vs SVM
+
+```{r perbandingan-tabel}
+tabel_perbandingan <- data.frame(
+  Skema = rep(c("90:10", "80:20", "70:30"), each = 2),
+  Model = rep(c("Random Forest", "SVM"), times = 3),
+  Accuracy = c(
+    metrik_rf_test_90$macro$Accuracy, metrik_svm_test_90$macro$Accuracy,
+    metrik_rf_test_80$macro$Accuracy, metrik_svm_test_80$macro$Accuracy,
+    metrik_rf_test_70$macro$Accuracy, metrik_svm_test_70$macro$Accuracy
+  ),
+  Precision = c(
+    metrik_rf_test_90$macro$Precision, metrik_svm_test_90$macro$Precision,
+    metrik_rf_test_80$macro$Precision, metrik_svm_test_80$macro$Precision,
+    metrik_rf_test_70$macro$Precision, metrik_svm_test_70$macro$Precision
+  ),
+  Recall = c(
+    metrik_rf_test_90$macro$Recall, metrik_svm_test_90$macro$Recall,
+    metrik_rf_test_80$macro$Recall, metrik_svm_test_80$macro$Recall,
+    metrik_rf_test_70$macro$Recall, metrik_svm_test_70$macro$Recall
+  ),
+  F1 = c(
+    metrik_rf_test_90$macro$F1, metrik_svm_test_90$macro$F1,
+    metrik_rf_test_80$macro$F1, metrik_svm_test_80$macro$F1,
+    metrik_rf_test_70$macro$F1, metrik_svm_test_70$macro$F1
+  )
+)
+
+knitr::kable(tabel_perbandingan, digits = 4, caption = "Perbandingan Kinerja Random Forest dan SVM pada Tiga Skema Pembagian Data")
+```
+
+```{r perbandingan-plot, fig.width=8, fig.height=5}
+tabel_perbandingan %>%
+  pivot_longer(cols = c(Accuracy, Precision, Recall, F1), names_to = "Metrik", values_to = "Nilai") %>%
+  ggplot(aes(x = Skema, y = Nilai, fill = Model)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~Metrik) +
+  labs(title = "Perbandingan Kinerja Random Forest vs SVM", x = "Skema Pembagian Data", y = "Nilai") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Hasil perbandingan pada Tabel [nomor tabel] menunjukkan bahwa kinerja Random Forest dan SVM tidak konsisten unggul pada seluruh skema pembagian data. Pada skema 90:10, Random Forest menghasilkan performa lebih baik dibandingkan SVM, dengan accuracy sebesar 70,97% berbanding 61,29%, serta F1-score sebesar 63,53% berbanding 57,73%. Sebaliknya, pada skema 80:20, SVM justru mengungguli Random Forest dengan accuracy sebesar 72,58% berbanding 66,13%, dan F1-score sebesar 67,26% berbanding 58,20%. Pada skema 70:30, kedua model sama-sama menunjukkan performa terendah dibandingkan skema lainnya, dengan Random Forest sedikit lebih unggul (accuracy 60,64%) dibandingkan SVM (accuracy 58,51%). Secara keseluruhan, performa terbaik di antara seluruh kombinasi model dan skema dicapai oleh SVM pada skema 80:20 (accuracy 72,58%, F1-score 67,26%), diikuti oleh Random Forest pada skema 90:10 (accuracy 70,97%, F1-score 63,53%). Jika dirata-ratakan pada ketiga skema, Random Forest memiliki rata-rata accuracy yang sedikit lebih tinggi (65,91%) dibandingkan SVM (64,13%), namun SVM memiliki rata-rata F1-score yang sedikit lebih tinggi (60,11%) dibandingkan Random Forest (58,06%). Hal ini mengindikasikan bahwa kedua model memiliki kemampuan yang relatif sebanding dalam mengklasifikasikan rekomendasi destinasi wisata Bali pada dataset ini, tanpa satu metode yang secara konsisten unggul di seluruh skema pengujian. Fluktuasi performa pada ketiga skema pembagian data ini juga mengindikasikan bahwa hasil klasifikasi cukup sensitif terhadap proporsi data training dan testing yang digunakan, kemungkinan dipengaruhi oleh ukuran dataset yang relatif kecil (314 observasi) sehingga perbedaan komposisi data pada tiap skema cukup berdampak pada pola yang dipelajari model, ditambah dengan variasi hasil SMOTE pada tiap skema pembagian data.
+
+# 6. Kesimpulan
+
+Berdasarkan hasil penelitian, tidak terdapat metode yang secara konsisten unggul di seluruh skema pengujian. SVM menghasilkan performa terbaik secara keseluruhan pada skema 80:20, sementara Random Forest lebih unggul pada skema 90:10. Hal ini menunjukkan bahwa pemilihan metode klasifikasi terbaik perlu mempertimbangkan proporsi pembagian data yang digunakan.Hasil perbandingan menunjukkan bahwa algoritma SVM memberikan 
+performa yang lebih baik dibandingkan algoritma RF, pemilihan model terbaik 
+dilakukan dengan mempertimbangkan hasil evaluasi secara keseluruhan. SVM 
+memperoleh nilai rata-rata accuracy, precision macro, sensitivity macro, dan 
+F1-score macro yang lebih baik. Oleh karena itu, algoritma SVM merupakan 
+metode yang lebih optimal untuk mengklasifikasikan destinasi wisata ke dalam 
+kategori Direkomendasikan dan Tidak Direkomendasikan. 
+

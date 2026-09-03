@@ -12,4 +12,4 @@ Berdasarkan hasil penelitian, tidak terdapat metode yang secara konsisten unggul
 
 Atau download file `analisis_rf_svm.html` lalu buka menggunakan browser untuk melihat laporan lengkap.
 
-**Catatan: GitHub tidak merender file .html secara langsung pada halaman repository. Silakan download file analisis_rf_svm.html lalu buka menggunakan browser untuk melihat laporan lengkap.
+**Catatan: GitHub tidak merender file .html secara langsung pada halaman repository. 

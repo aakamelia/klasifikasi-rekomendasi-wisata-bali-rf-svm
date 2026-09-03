@@ -1,13 +1,13 @@
 # klasifikasi-rekomendasi-wisata-bali-rf-svm
 Perbandingan kinerja Random Forest dan SVM dalam klasifikasi rekomendasi destinasi wisata Bali
-##Ringkasan Penelitian
+## Ringkasan Penelitian
 Sektor pariwisata merupakan salah satu sektor strategis yang berperan dalam pembangunan ekonomi Indonesia. Bali menjadi salah satu destinasi wisata unggulan dengan jumlah kunjungan wisatawan yang terus meningkat. Pada Januari–Mei 2025, kunjungan wisatawan mancanegara ke Bali mencapai 2,64 juta kunjungan, meningkat 13,65% dibandingkan periode yang sama tahun sebelumnya. Tingginya jumlah destinasi wisata di Bali memberikan banyak alternatif bagi wisatawan, tetapi sekaligus dapat menimbulkan information overload sehingga menyulitkan proses pemilihan destinasi sesuai kebutuhan dan preferensi. Oleh karena itu, diperlukan pendekatan berbasis data yang dapat membantu mengklasifikasikan destinasi wisata sebagai rekomendasi atau tidak.
 Salah satu sumber informasi wisata yang dapat dimanfaatkan adalah Google Maps, yang menyediakan data user-generated content seperti rating, jumlah ulasan, lokasi, dan informasi destinasi. Data tersebut dapat dimanfaatkan dalam pendekatan machine learning untuk membangun model klasifikasi rekomendasi destinasi wisata. Support Vector Machine (SVM) merupakan salah satu metode klasifikasi yang memiliki kemampuan baik dalam menangani data dengan pola pemisahan yang kompleks. Sementara itu, Random Forest (RF) merupakan metode ensemble berbasis decision tree yang efektif dalam menangani data tabular dan dapat mengurangi risiko overfitting. Perbedaan karakteristik kedua metode tersebut menjadikannya relevan untuk dibandingkan pada data pariwisata.
-##Metode Penelitian
+## Metode Penelitian
 metode yang digunakan: Data preprocessing dan cleaning, One-Hot Encoding pada variabel kategori, Normalisasi data menggunakan Min-Max, Penanganan ketidakseimbangan kelas menggunakan SMOTE pada data training, Pemodelan menggunakan Random Forest, Pemodelan menggunakan Support Vector Machine (SVM) dengan kernel RBF, Evaluasi model menggunakan Accuracy, Precision, Sensitivity, dan F1-Score, Pengujian dilakukan pada beberapa skema pembagian data dan seed 26
-#Hasil Utama
+# Hasil Utama
 Berdasarkan hasil penelitian, tidak terdapat metode yang secara konsisten unggul di seluruh skema pengujian. SVM menghasilkan performa terbaik secara keseluruhan pada skema 80:20, sementara Random Forest lebih unggul pada skema 90:10. Hal ini menunjukkan bahwa pemilihan metode klasifikasi terbaik perlu mempertimbangkan proporsi pembagian data yang digunakan.Hasil perbandingan menunjukkan bahwa algoritma SVM memberikan performa yang lebih baik dibandingkan algoritma RF, pemilihan model terbaik dilakukan dengan mempertimbangkan hasil evaluasi secara keseluruhan. SVM memperoleh nilai rata-rata accuracy, precision macro, sensitivity macro, dan F1-score macro yang lebih baik. Oleh karena itu, algoritma SVM merupakan metode yang lebih optimal untuk mengklasifikasikan destinasi wisata ke dalam kategori Direkomendasikan dan Tidak Direkomendasikan.
-##laporan lengkap
+## laporan lengkap
 [📄 Laporan Lengkap](analisi_rf_svm.html)
 
-**Catatan: GitHub tidak merender file .html secara langsung pada halaman repository. Silakan download file .html lalu buka menggunakan browser untuk melihat laporan lengkap.
+**Catatan: GitHub tidak merender file .html secara langsung pada halaman repository. Silakan download file analisis_rf_svm.html lalu buka menggunakan browser untuk melihat laporan lengkap.
